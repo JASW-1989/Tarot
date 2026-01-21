@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星際塔羅 - 隨身牌陣工具</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Noto+Sans+TC:wght@300;500&display=swap');
+
+        :root {
+            --gold: #D4AF37;
+            --dark-bg: #0f0f13;
+            --card-bg: #1a1a2e;
+            --light-gold: #f4df9b;
+            --input-bg: rgba(212, 175, 55, 0.05);
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--dark-bg);
+            color: var(--gold);
+            font-family: 'Cinzel', 'Noto Sans TC', serif;
+            overflow: hidden;
+            height: 100vh;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI 層級 */
+        #ui-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+            z-index: 10;
+        }
+
+        .title {
+            font-size: clamp(1.2rem, 4vw, 2rem);
+            letter-spacing: 4px;
+            margin: 0;
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+        }
+
+        .instruction {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: var(--light-gold);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 5px 15px;
+            border-radius: 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        /* 初始選擇與問題輸入介面 */
+        #selector-modal {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 15, 0.96);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            z-index: 50;
+            pointer-events: auto;
+            padding: 40px 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .input-group {
+            width: 100%;
+            max-width: 450px;
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .input-group label {
+            font-size: 0.9rem;
+            color: var(--light-gold);
+            letter-spacing: 1px;
+            text-align: center;
+        }
+
+        .input-group input {
+            background: var(--input-bg);
+            border: 1px solid rgba(212, 175, 55, 0.5);
+            color: white;
+            padding: 12px 15px;
+            font-family: 'Noto Sans TC';
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.3s;
+            text-align: center;
+        }
+
+        .input-group input:focus {
+            border-color: var(--gold);
+        }
+
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .menu-item {
+            background: rgba(212, 175, 55, 0.05);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .menu-item:hover {
+            background: rgba(212, 175, 55, 0.15);
+            border-color: var(--gold);
+            transform: translateY(-2px);
+        }
+
+        .menu-item h4 { margin: 0 0 5px 0; color: var(--gold); letter-spacing: 1px; font-size: 0.95rem; }
+        .menu-item p { margin: 0; color: #aaa; font-size: 0.75rem; line-height: 1.4; }
+
+        /* 結果面板 */
+        #result-modal {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 15, 0.98);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            z-index: 100;
+            pointer-events: auto;
+            padding: 20px 10px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        /* 牌陣配置邏輯 */
+        .spread-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            width: 100%;
+            max-width: 1200px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* 塞爾特十字專用網格 */
+        .spread-row.celtic-cross {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(4, auto);
+            gap: 10px;
+            width: fit-content;
+        }
+
+        .card-container {
+            width: clamp(80px, 18vw, 130px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        /* 塞爾特十字位置映射 */
+        .celtic-pos-3 { grid-area: 1 / 2 / 2 / 3; } /* 理想 */
+        .celtic-pos-10 { grid-area: 1 / 4 / 2 / 5; } /* 結果 */
+        .celtic-pos-5 { grid-area: 2 / 1 / 3 / 2; } /* 過去 */
+        .celtic-pos-1 { grid-area: 2 / 2 / 3 / 3; } /* 核心 */
+        .celtic-pos-2 { grid-area: 2 / 2 / 3 / 3; z-index: 10; transform: translateY(10px); } /* 挑戰 (疊在1上) */
+        .celtic-pos-6 { grid-area: 2 / 3 / 3 / 4; } /* 未來 */
+        .celtic-pos-9 { grid-area: 2 / 4 / 3 / 5; } /* 希望恐懼 */
+        .celtic-pos-4 { grid-area: 3 / 2 / 4 / 3; } /* 根基 */
+        .celtic-pos-8 { grid-area: 3 / 4 / 4 / 5; } /* 環境 */
+        .celtic-pos-7 { grid-area: 4 / 4 / 5 / 5; } /* 自我 */
+
+        /* 塞爾特十字中橫放的第二張牌 */
+        .celtic-pos-2 .card-inner {
+            transform: rotate(90deg);
+        }
+        .celtic-pos-2 .card-inner.flipped {
+            transform: rotateY(180deg) rotate(90deg);
+        }
+
+        .pos-label { font-size: 0.65rem; color: #888; font-family: 'Noto Sans TC'; }
+        .card-slot { width: 100%; aspect-ratio: 140 / 242; perspective: 1000px; cursor: pointer; }
+
+        .card-name-label {
+            color: var(--light-gold); font-size: 0.75rem; text-align: center;
+            min-height: 2.4em; line-height: 1.2; font-family: 'Noto Sans TC';
+        }
+
+        .card-inner {
+            width: 100%; height: 100%;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+            position: relative;
+        }
+
+        .card-inner.flipped { transform: rotateY(180deg); }
+        .face {
+            position: absolute; width: 100%; height: 100%;
+            backface-visibility: hidden; border-radius: 4px;
+            border: 1px solid var(--gold); background: var(--card-bg);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .face-back { transform: rotateY(0deg); }
+        .face-front { transform: rotateY(180deg); }
+        canvas.card-content { width: 100%; height: 100%; display: block; }
+
+        .actions { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .btn {
+            background: transparent; border: 1px solid var(--gold);
+            color: var(--gold); padding: 8px 16px;
+            font-family: 'Noto Sans TC', serif; font-size: 0.85rem;
+            cursor: pointer; transition: 0.3s; border-radius: 4px;
+        }
+        .btn:hover { background: var(--gold); color: #000; }
+        .btn-copy { border-color: #55acee; color: #55acee; }
+        .btn-copy:hover { background: #55acee; color: #fff; }
+
+        #question-display {
+            font-style: italic; color: #888; font-size: 0.85rem;
+            margin-top: 5px; text-align: center; max-width: 90%;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <canvas id="tarotCanvas"></canvas>
+    
+    <div id="ui-overlay">
+        <h1 class="title">STAR TAROT</h1>
+        <div id="status-text" class="instruction">請輸入問題並選擇牌陣...</div>
+    </div>
+
+    <!-- 牌陣選擇與問題輸入 -->
+    <div id="selector-modal">
+        <div class="input-group">
+            <label>您心中想問的問題或議題：</label>
+            <input type="text" id="user-question" placeholder="例如：這段合作關係未來的展望？" autocomplete="off">
+        </div>
+
+        <h3 style="letter-spacing: 2px; margin-bottom: 20px;">選擇占卜牌陣</h3>
+        <div class="menu-grid">
+            <div class="menu-item" onclick="app.startPick(1)">
+                <h4>單張占卜 (One Card)</h4>
+                <p>快速獲取即時的直覺啟示或是非題指引。</p>
+            </div>
+            <div class="menu-item" onclick="app.startPick(3)">
+                <h4>聖三角陣 (Trinity Spread)</h4>
+                <p>分析事件「過去、現在、未來」的時間發展發展。</p>
+            </div>
+            <div class="menu-item" onclick="app.startPick(5)">
+                <h4>五芒星陣 (Five Card Spread)</h4>
+                <p>深度解析當下、障礙、理想、潛意識及預期結果。</p>
+            </div>
+            <div class="menu-item" onclick="app.startPick(10)">
+                <h4>塞爾特十字陣 (Celtic Cross)</h4>
+                <p>塔羅經典牌陣。全面剖析核心問題、內外在影響與未來終局。</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 結果面板 -->
+    <div id="result-modal">
+        <h2 id="spread-title" style="margin:0; letter-spacing: 2px; color: var(--light-gold);">牌陣結果</h2>
+        <div id="question-display"></div>
+        <div class="spread-row" id="spread-area"></div>
+        <div class="actions">
+            <button class="btn btn-copy" onclick="app.copyResults()">複製結果 (Copy for AI)</button>
+            <button class="btn" onclick="app.reset()">重新占卜 (Reset)</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * 塔羅牌 APP 核心邏輯
+ * 支援塞爾特十字佈局與動態 UI 配置
+ */
+
+const APP_CONFIG = {
+    TOTAL_COUNT: 78,
+    COLORS: {
+        gold: '#D4AF37', wands: '#ff8e8e', cups: '#74c0fc', swords: '#ced4da', pentacles: '#ffd43b'
+    },
+    CHINESE: {
+        majors: ["愚者", "魔術師", "女祭司", "女皇", "皇帝", "教皇", "戀人", "戰車", "力量", "隱者", "命運之輪", "正義", "吊人", "死神", "節制", "惡魔", "高塔", "星星", "月亮", "太陽", "審判", "世界"],
+        suits: { wands: "權杖", cups: "聖杯", swords: "寶劍", pentacles: "錢幣" },
+        values: { 1: "王牌", 11: "侍者", 12: "騎士", 13: "皇后", 14: "國王" }
+    },
+    SPREADS: {
+        1: { name: "單張占卜", pos: ["核心啟示"] },
+        3: { name: "聖三角陣", pos: ["過去 / 根源", "現在 / 現狀", "未來 / 趨勢"] },
+        5: { name: "五芒星陣", pos: ["當下現狀", "核心阻礙", "理想目標", "潛意識根基", "預期結果"] },
+        10: { name: "塞爾特十字陣", pos: ["核心問題", "挑戰與阻礙", "有意識的目標", "潛意識的根基", "過去的影響", "即將到來的未來", "自我狀態", "外在環境", "希望與恐懼", "最終結果"] }
+    }
+};
+
+class TarotApp {
+    constructor() {
+        this.canvas = document.getElementById('tarotCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.dpr = window.devicePixelRatio || 1;
+        this.state = 'SELECT'; 
+        this.deck = [];
+        this.selectedIndices = [];
+        this.currentMaxPick = 3;
+        this.userQuestion = "";
+        this.mouse = { x: 0, y: 0 };
+        this.time = 0;
+        this.hoverIdx = -1;
+
+        this.init();
+        window.addEventListener('resize', () => this.resize());
+        this.setupInteractions();
+    }
+
+    init() {
+        this.resize();
+        this.buildDeck();
+        this.loop();
+    }
+
+    resize() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        this.width = w;
+        this.height = h;
+        this.canvas.width = w * this.dpr;
+        this.canvas.height = h * this.dpr;
+        this.ctx.scale(this.dpr, this.dpr);
+        if (this.deck.length > 0) this.updateCardLayout();
+    }
+
+    buildDeck() {
+        const majors = APP_CONFIG.CHINESE.majors;
+        const suits = [{id:'wands'},{id:'cups'},{id:'swords'},{id:'pentacles'}];
+        this.deck = [];
+        majors.forEach((name, i) => {
+            this.deck.push({ type:'major', id:i, name_zh:name, color:APP_CONFIG.COLORS.gold });
+        });
+        suits.forEach(suit => {
+            for(let v=1; v<=14; v++) {
+                const val_zh = APP_CONFIG.CHINESE.values[v] || v;
+                this.deck.push({
+                    type:'minor', suit:suit.id, value:v, 
+                    name_zh: APP_CONFIG.CHINESE.suits[suit.id] + val_zh,
+                    color: APP_CONFIG.COLORS[suit.id]
+                });
+            }
+        });
+        this.updateCardLayout();
+    }
+
+    updateCardLayout() {
+        const centerX = this.width / 2;
+        const radius = Math.max(this.height * 1.5, this.width * 1.2, 1000);
+        const centerY = this.height + (radius * 0.78); 
+        
+        const sideMargin = 40;
+        let maxHalfAngle = Math.asin((centerX - sideMargin) / radius);
+        maxHalfAngle = Math.min(maxHalfAngle, 0.75); 
+
+        const angleRange = maxHalfAngle * 2;
+        const startAngle = (Math.PI * 1.5) - maxHalfAngle;
+
+        this.deck.forEach((card, i) => {
+            card.angle = startAngle + (i / (this.deck.length - 1)) * angleRange;
+            card.x = centerX + Math.cos(card.angle) * radius;
+            card.y = centerY + Math.sin(card.angle) * radius;
+            card.hover = 0;
+            card.picked = false;
+            card.flyProgress = 0;
+        });
+    }
+
+    startPick(count) {
+        const qInput = document.getElementById('user-question');
+        this.userQuestion = qInput.value.trim() || "未指定特定問題";
+        
+        this.currentMaxPick = count;
+        this.selectedIndices = [];
+        this.state = 'SHUFFLING';
+        document.getElementById('selector-modal').style.display = 'none';
+        document.getElementById('status-text').innerText = "洗牌中 (Shuffling)...";
+        
+        for (let i = this.deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]];
+        }
+        this.updateCardLayout();
+
+        setTimeout(() => {
+            this.state = 'PICKING';
+            document.getElementById('status-text').innerText = `請點選 ${count} 張牌`;
+        }, 1200);
+    }
+
+    setupInteractions() {
+        const handleDown = (x, y) => {
+            this.mouse.x = x;
+            this.mouse.y = y;
+            if (this.state === 'PICKING') this.checkPick();
+        };
+        this.canvas.addEventListener('mousedown', e => handleDown(e.clientX, e.clientY));
+        this.canvas.addEventListener('touchstart', e => { 
+            e.preventDefault(); 
+            handleDown(e.touches[0].clientX, e.touches[0].clientY); 
+        });
+        window.addEventListener('mousemove', e => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; });
+    }
+
+    getHoveredCardIndex() {
+        if (this.state !== 'PICKING') return -1;
+        for (let i = this.deck.length - 1; i >= 0; i--) {
+            const card = this.deck[i];
+            if (card.picked) continue;
+            const dx = this.mouse.x - card.x;
+            const dy = this.mouse.y - card.y;
+            if (Math.sqrt(dx * dx + dy * dy) < 55) return i;
+        }
+        return -1;
+    }
+
+    checkPick() {
+        if (this.selectedIndices.length >= this.currentMaxPick) return;
+        const idx = this.getHoveredCardIndex();
+        if (idx !== -1) {
+            const card = this.deck[idx];
+            card.picked = true;
+            card.isReversed = Math.random() > 0.5;
+            this.selectedIndices.push({...card});
+            document.getElementById('status-text').innerText = `已選擇 ${this.selectedIndices.length} / ${this.currentMaxPick}`;
+            if (this.selectedIndices.length === this.currentMaxPick) {
+                setTimeout(() => this.showResult(), 1000);
+            }
+        }
+    }
+
+    showResult() {
+        this.state = 'RESULT';
+        const spread = APP_CONFIG.SPREADS[this.currentMaxPick];
+        const modal = document.getElementById('result-modal');
+        const area = document.getElementById('spread-area');
+        
+        document.getElementById('spread-title').innerText = spread.name;
+        document.getElementById('question-display').innerText = `問卜議題：「${this.userQuestion}」`;
+        modal.style.display = 'flex';
+        area.innerHTML = '';
+        
+        // 如果是塞爾特十字，加入特殊 CSS 類
+        if (this.currentMaxPick === 10) {
+            area.classList.add('celtic-cross');
+        } else {
+            area.classList.remove('celtic-cross');
+        }
+
+        this.selectedIndices.forEach((card, idx) => {
+            const container = document.createElement('div');
+            container.className = `card-container ${this.currentMaxPick === 10 ? 'celtic-pos-' + (idx+1) : ''}`;
+            const posLabel = spread.pos[idx] || `位置 ${idx+1}`;
+            
+            container.innerHTML = `
+                <div class="pos-label">${idx+1}. ${posLabel}</div>
+                <div class="card-slot" onclick="this.querySelector('.card-inner').classList.toggle('flipped'); app.updateLabel(${idx})">
+                    <div class="card-inner" id="inner-${idx}">
+                        <div class="face face-back"><canvas id="cb-${idx}"></canvas></div>
+                        <div class="face face-front"><canvas id="cf-${idx}"></canvas></div>
+                    </div>
+                </div>
+                <div class="card-name-label" id="label-${idx}"></div>
+            `;
+            area.appendChild(container);
+            this.renderCardStatic(document.getElementById(`cb-${idx}`), card, true);
+            this.renderCardStatic(document.getElementById(`cf-${idx}`), card, false);
+        });
+    }
+
+    updateLabel(idx) {
+        const card = this.selectedIndices[idx];
+        const inner = document.getElementById(`inner-${idx}`);
+        const label = document.getElementById(`label-${idx}`);
+        label.innerText = inner.classList.contains('flipped') ? 
+            `${card.name_zh}\n${card.isReversed ? '(逆位)' : '(正位)'}` : "";
+    }
+
+    renderCardStatic(canvas, card, isBack) {
+        const d = 2; 
+        const rect = canvas.parentNode.getBoundingClientRect();
+        canvas.width = rect.width * d; canvas.height = rect.height * d;
+        const ctx = canvas.getContext('2d'); ctx.scale(d, d);
+        const w = rect.width; const h = rect.height;
+
+        ctx.fillStyle = isBack ? '#1a1a2e' : '#111122';
+        ctx.fillRect(0, 0, w, h);
+        
+        if (isBack) {
+            ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(w/2, h/2, 15, 0, Math.PI*2); ctx.stroke();
+            ctx.strokeRect(6, 6, w-12, h-12);
+        } else {
+            ctx.save();
+            if (card.isReversed) { ctx.translate(w/2, h/2); ctx.rotate(Math.PI); ctx.translate(-w/2, -h/2); }
+            ctx.strokeStyle = card.color; ctx.lineWidth = 1.5;
+            ctx.translate(w/2, h/2 - 15);
+            
+            const r = 12;
+            const spikes = 3 + (card.id % 6);
+            for(let i=0; i<spikes; i++) { ctx.rotate((Math.PI*2)/spikes); ctx.moveTo(0,0); ctx.lineTo(0,r); ctx.stroke(); }
+            ctx.restore();
+        }
+        ctx.strokeStyle = card.color || '#D4AF37'; ctx.lineWidth = 1; ctx.strokeRect(4, 4, w-8, h-8);
+    }
+
+    copyResults() {
+        const spread = APP_CONFIG.SPREADS[this.currentMaxPick];
+        let text = `【星際塔羅占卜報告】\n`;
+        text += `問卜問題：${this.userQuestion}\n`;
+        text += `採用牌陣：${spread.name}\n\n`;
+        text += `【牌陣細節】\n`;
+        this.selectedIndices.forEach((card, i) => {
+            text += `${i+1}. ${spread.pos[i]}：${card.name_zh} (${card.isReversed ? '逆位' : '正位'})\n`;
+        });
+        text += "\n請作為專業塔羅占卜師，根據上述牌陣位置的特殊含義與議題背景，為我提供深度解析與建議。";
+        
+        const el = document.createElement('textarea');
+        el.value = text; document.body.appendChild(el); el.select();
+        document.execCommand('copy'); document.body.removeChild(el);
+        alert('結果已複製，請至 AI 視窗貼上獲取解析！');
+    }
+
+    reset() {
+        this.state = 'SELECT';
+        this.selectedIndices = [];
+        this.deck.forEach(c => { c.picked = false; c.hover = 0; c.flyProgress = 0; });
+        document.getElementById('user-question').value = "";
+        document.getElementById('result-modal').style.display = 'none';
+        document.getElementById('selector-modal').style.display = 'flex';
+        document.getElementById('status-text').innerText = "請輸入問題並選擇牌陣...";
+        this.updateCardLayout();
+    }
+
+    loop() {
+        this.time += 0.02;
+        const { ctx, width, height, deck, state } = this;
+        ctx.clearRect(0, 0, width, height);
+        
+        const grad = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width*0.9);
+        grad.addColorStop(0, '#1a1a2e');
+        grad.addColorStop(1, '#0f0f13');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+
+        if (state === 'PICKING' || state === 'SHUFFLING') {
+            this.hoverIdx = this.getHoveredCardIndex();
+            deck.forEach((card, i) => {
+                let tx = card.x, ty = card.y;
+                let scale = 1, alpha = 1;
+
+                if (card.picked) {
+                    card.flyProgress += 0.06;
+                    ty -= card.flyProgress * 500;
+                    alpha = Math.max(0, 1 - card.flyProgress);
+                    scale = 1 + card.flyProgress * 0.8;
+                } else {
+                    if (state === 'SHUFFLING') { 
+                        tx += Math.sin(this.time * 6 + i * 0.4) * 110; 
+                        ty += Math.cos(this.time * 4 + i * 0.2) * 25; 
+                    }
+                    const targetHover = (i === this.hoverIdx) ? 1 : 0;
+                    card.hover += (targetHover - card.hover) * 0.2;
+                    ty -= card.hover * 55;
+                }
+
+                if (alpha > 0) {
+                    ctx.save();
+                    ctx.globalAlpha = alpha;
+                    ctx.translate(tx, ty);
+                    ctx.rotate(card.angle + Math.PI / 2);
+                    ctx.scale(scale, scale);
+                    ctx.fillStyle = '#1a1a2e';
+                    ctx.strokeStyle = card.hover > 0.5 ? '#f4df9b' : '#D4AF37';
+                    ctx.lineWidth = card.hover > 0.5 ? 2 : 1;
+                    ctx.beginPath();
+                    ctx.roundRect(-22, -38, 44, 76, 5);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            });
+        }
+        requestAnimationFrame(() => this.loop());
+    }
+}
+const app = new TarotApp();
+</script>
+</body>
+</html>

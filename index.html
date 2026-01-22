@@ -310,7 +310,7 @@
 <script>
 /**
  * 塔羅牌 APP 核心邏輯
- * 修正：手機版面溢出與觸控選牌問題
+ * 修正：解決抽牌時的卡牌抖動 (Jitter) 問題
  */
 
 const APP_CONFIG = {
@@ -477,10 +477,11 @@ class TarotApp {
         for (let i = this.deck.length - 1; i >= 0; i--) {
             const card = this.deck[i];
             if (card.picked) continue;
-            // 計算考慮了懸停位移的視覺位置
-            const visualY = card.y - (card.hover * 50);
+            
+            // 修正：使用卡牌的原始位置 (card.y) 進行判定
+            // 這樣即便卡牌視覺上浮起了，滑鼠也不會判定為「離開卡牌」，從而消除抖動循環
             const dx = this.mouse.x - card.x;
-            const dy = this.mouse.y - visualY;
+            const dy = this.mouse.y - card.y; // <--- 關鍵修改：不使用 visualY
             
             // 判定範圍
             if (Math.sqrt(dx * dx + dy * dy) < 55) return i;

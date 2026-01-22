@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>星際塔羅 - 隨身牌陣工具</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Noto+Sans+TC:wght@300;500&display=swap');
@@ -23,7 +23,8 @@
             overflow: hidden;
             height: 100vh;
             user-select: none;
-            touch-action: none;
+            touch-action: none; /* 禁止預設觸控行為 */
+            -webkit-tap-highlight-color: transparent;
         }
 
         #app-container {
@@ -309,7 +310,7 @@
 <script>
 /**
  * 塔羅牌 APP 核心邏輯
- * 支援塞爾特十字佈局與動態 UI 配置
+ * 修正：手機版面溢出與觸控選牌問題
  */
 
 const APP_CONFIG = {
@@ -343,6 +344,10 @@ class TarotApp {
         this.mouse = { x: 0, y: 0 };
         this.time = 0;
         this.hoverIdx = -1;
+
+        // 載入外部牌背圖片
+        this.cardBackImage = new Image();
+        this.cardBackImage.src = 'https://jasw-1989.github.io/Tarot/Tarot%20cover.jpg';
 
         this.init();
         window.addEventListener('resize', () => this.resize());
@@ -386,14 +391,27 @@ class TarotApp {
         this.updateCardLayout();
     }
 
+    /**
+     * 動態佈局：手機版優化
+     */
     updateCardLayout() {
         const centerX = this.width / 2;
-        const radius = Math.max(this.height * 1.5, this.width * 1.2, 1000);
-        const centerY = this.height + (radius * 0.78); 
+        const isMobile = this.width < 600;
         
-        const sideMargin = 40;
+        // 手機上使用較小的半徑比例，讓扇形更彎，避免擠成一條直線
+        // 桌面版則保持較大半徑，看起來比較優雅
+        const radius = isMobile ? this.width * 1.5 : Math.max(this.height * 1.5, this.width * 1.2, 1000);
+        
+        // 中心點下移量
+        const centerY = this.height + (radius * (isMobile ? 0.6 : 0.78)); 
+        
+        // 邊距設定，手機版邊距較小
+        const sideMargin = isMobile ? 20 : 40;
+        
+        // 計算最大張角
         let maxHalfAngle = Math.asin((centerX - sideMargin) / radius);
-        maxHalfAngle = Math.min(maxHalfAngle, 0.75); 
+        // 手機版允許稍大的重疊以顯示更多弧度，但限制最大角度
+        maxHalfAngle = Math.min(maxHalfAngle, isMobile ? 0.85 : 0.75); 
 
         const angleRange = maxHalfAngle * 2;
         const startAngle = (Math.PI * 1.5) - maxHalfAngle;
@@ -436,11 +454,21 @@ class TarotApp {
             this.mouse.y = y;
             if (this.state === 'PICKING') this.checkPick();
         };
+        
         this.canvas.addEventListener('mousedown', e => handleDown(e.clientX, e.clientY));
+        
         this.canvas.addEventListener('touchstart', e => { 
             e.preventDefault(); 
             handleDown(e.touches[0].clientX, e.touches[0].clientY); 
-        });
+        }, { passive: false });
+
+        // 關鍵修正：新增 touchmove 讓手機可以拖曳預覽懸停效果
+        this.canvas.addEventListener('touchmove', e => {
+            e.preventDefault(); // 防止畫面捲動
+            this.mouse.x = e.touches[0].clientX;
+            this.mouse.y = e.touches[0].clientY;
+        }, { passive: false });
+
         window.addEventListener('mousemove', e => { this.mouse.x = e.clientX; this.mouse.y = e.clientY; });
     }
 
@@ -449,8 +477,12 @@ class TarotApp {
         for (let i = this.deck.length - 1; i >= 0; i--) {
             const card = this.deck[i];
             if (card.picked) continue;
+            // 計算考慮了懸停位移的視覺位置
+            const visualY = card.y - (card.hover * 50);
             const dx = this.mouse.x - card.x;
-            const dy = this.mouse.y - card.y;
+            const dy = this.mouse.y - visualY;
+            
+            // 判定範圍
             if (Math.sqrt(dx * dx + dy * dy) < 55) return i;
         }
         return -1;
@@ -482,7 +514,6 @@ class TarotApp {
         modal.style.display = 'flex';
         area.innerHTML = '';
         
-        // 如果是塞爾特十字，加入特殊 CSS 類
         if (this.currentMaxPick === 10) {
             area.classList.add('celtic-cross');
         } else {
@@ -529,8 +560,14 @@ class TarotApp {
         ctx.fillRect(0, 0, w, h);
         
         if (isBack) {
-            ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(w/2, h/2, 15, 0, Math.PI*2); ctx.stroke();
+            if (this.cardBackImage.complete) {
+                ctx.drawImage(this.cardBackImage, 0, 0, w, h);
+            } else {
+                ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(w/2, h/2, 15, 0, Math.PI*2); ctx.stroke();
+            }
+            ctx.strokeStyle = APP_CONFIG.COLORS.gold;
+            ctx.lineWidth = 1;
             ctx.strokeRect(6, 6, w-12, h-12);
         } else {
             ctx.save();
@@ -612,13 +649,30 @@ class TarotApp {
                     ctx.translate(tx, ty);
                     ctx.rotate(card.angle + Math.PI / 2);
                     ctx.scale(scale, scale);
+                    
                     ctx.fillStyle = '#1a1a2e';
                     ctx.strokeStyle = card.hover > 0.5 ? '#f4df9b' : '#D4AF37';
                     ctx.lineWidth = card.hover > 0.5 ? 2 : 1;
+                    
                     ctx.beginPath();
                     ctx.roundRect(-22, -38, 44, 76, 5);
-                    ctx.fill();
+                    
+                    if (this.cardBackImage.complete) {
+                        ctx.save();
+                        ctx.clip();
+                        ctx.drawImage(this.cardBackImage, -22, -38, 44, 76);
+                        ctx.restore();
+                    } else {
+                        ctx.fill();
+                    }
+                    
                     ctx.stroke();
+                    if (card.hover > 0.1) {
+                        ctx.strokeStyle = 'rgba(212, 175, 55, ' + (card.hover * 0.5) + ')';
+                        ctx.beginPath();
+                        ctx.arc(0, 0, 15 * card.hover, 0, Math.PI*2);
+                        ctx.stroke();
+                    }
                     ctx.restore();
                 }
             });

@@ -310,7 +310,7 @@
 <script>
 /**
  * 塔羅牌 APP 核心邏輯
- * 修正：解決抽牌時的卡牌抖動 (Jitter) 問題
+ * 修正：整合 78 張自訂卡牌圖片
  */
 
 const APP_CONFIG = {
@@ -373,18 +373,43 @@ class TarotApp {
 
     buildDeck() {
         const majors = APP_CONFIG.CHINESE.majors;
-        const suits = [{id:'wands'},{id:'cups'},{id:'swords'},{id:'pentacles'}];
+        const suits = [
+            {id:'wands', filePrefix: 'Wands'},
+            {id:'cups', filePrefix: 'Cups'},
+            {id:'swords', filePrefix: 'Swrods'}, // 遵循使用者的檔名 (Swrods)
+            {id:'pentacles', filePrefix: 'Pentacles'}
+        ];
+        const baseUrl = 'https://jasw-1989.github.io/Tarot/';
+        
         this.deck = [];
+        
+        // 22 Majors
         majors.forEach((name, i) => {
-            this.deck.push({ type:'major', id:i, name_zh:name, color:APP_CONFIG.COLORS.gold });
+            const img = new Image();
+            img.src = `${baseUrl}MajorArcana_${i}.jpg`; // MajorArcana_0 ~ 21
+            this.deck.push({ 
+                type: 'major', 
+                id: i, 
+                name_zh: name, 
+                color: APP_CONFIG.COLORS.gold,
+                img: img
+            });
         });
+        
+        // 56 Minors
         suits.forEach(suit => {
             for(let v=1; v<=14; v++) {
                 const val_zh = APP_CONFIG.CHINESE.values[v] || v;
+                const img = new Image();
+                img.src = `${baseUrl}${suit.filePrefix}_${v}.jpg`; // e.g., Wands_1.jpg
+                
                 this.deck.push({
-                    type:'minor', suit:suit.id, value:v, 
+                    type: 'minor', 
+                    suit: suit.id, 
+                    value: v, 
                     name_zh: APP_CONFIG.CHINESE.suits[suit.id] + val_zh,
-                    color: APP_CONFIG.COLORS[suit.id]
+                    color: APP_CONFIG.COLORS[suit.id],
+                    img: img
                 });
             }
         });
@@ -398,19 +423,11 @@ class TarotApp {
         const centerX = this.width / 2;
         const isMobile = this.width < 600;
         
-        // 手機上使用較小的半徑比例，讓扇形更彎，避免擠成一條直線
-        // 桌面版則保持較大半徑，看起來比較優雅
         const radius = isMobile ? this.width * 1.5 : Math.max(this.height * 1.5, this.width * 1.2, 1000);
-        
-        // 中心點下移量
         const centerY = this.height + (radius * (isMobile ? 0.6 : 0.78)); 
-        
-        // 邊距設定，手機版邊距較小
         const sideMargin = isMobile ? 20 : 40;
         
-        // 計算最大張角
         let maxHalfAngle = Math.asin((centerX - sideMargin) / radius);
-        // 手機版允許稍大的重疊以顯示更多弧度，但限制最大角度
         maxHalfAngle = Math.min(maxHalfAngle, isMobile ? 0.85 : 0.75); 
 
         const angleRange = maxHalfAngle * 2;
@@ -462,9 +479,8 @@ class TarotApp {
             handleDown(e.touches[0].clientX, e.touches[0].clientY); 
         }, { passive: false });
 
-        // 關鍵修正：新增 touchmove 讓手機可以拖曳預覽懸停效果
         this.canvas.addEventListener('touchmove', e => {
-            e.preventDefault(); // 防止畫面捲動
+            e.preventDefault();
             this.mouse.x = e.touches[0].clientX;
             this.mouse.y = e.touches[0].clientY;
         }, { passive: false });
@@ -478,12 +494,9 @@ class TarotApp {
             const card = this.deck[i];
             if (card.picked) continue;
             
-            // 修正：使用卡牌的原始位置 (card.y) 進行判定
-            // 這樣即便卡牌視覺上浮起了，滑鼠也不會判定為「離開卡牌」，從而消除抖動循環
             const dx = this.mouse.x - card.x;
-            const dy = this.mouse.y - card.y; // <--- 關鍵修改：不使用 visualY
+            const dy = this.mouse.y - card.y;
             
-            // 判定範圍
             if (Math.sqrt(dx * dx + dy * dy) < 55) return i;
         }
         return -1;
@@ -571,17 +584,30 @@ class TarotApp {
             ctx.lineWidth = 1;
             ctx.strokeRect(6, 6, w-12, h-12);
         } else {
+            // 正面渲染邏輯 (圖片優先)
             ctx.save();
-            if (card.isReversed) { ctx.translate(w/2, h/2); ctx.rotate(Math.PI); ctx.translate(-w/2, -h/2); }
-            ctx.strokeStyle = card.color; ctx.lineWidth = 1.5;
-            ctx.translate(w/2, h/2 - 15);
+            // 逆位處理
+            if (card.isReversed) { 
+                ctx.translate(w/2, h/2); 
+                ctx.rotate(Math.PI); 
+                ctx.translate(-w/2, -h/2); 
+            }
             
-            const r = 12;
-            const spikes = 3 + (card.id % 6);
-            for(let i=0; i<spikes; i++) { ctx.rotate((Math.PI*2)/spikes); ctx.moveTo(0,0); ctx.lineTo(0,r); ctx.stroke(); }
+            if (card.img && card.img.complete) {
+                // 圖片已載入，直接繪製
+                ctx.drawImage(card.img, 0, 0, w, h);
+            } else {
+                // 圖片未載入，顯示幾何備案
+                ctx.strokeStyle = card.color; ctx.lineWidth = 1.5;
+                ctx.translate(w/2, h/2 - 15);
+                const r = 12;
+                const spikes = 3 + (card.id % 6);
+                for(let i=0; i<spikes; i++) { ctx.rotate((Math.PI*2)/spikes); ctx.moveTo(0,0); ctx.lineTo(0,r); ctx.stroke(); }
+            }
             ctx.restore();
         }
-        ctx.strokeStyle = card.color || '#D4AF37'; ctx.lineWidth = 1; ctx.strokeRect(4, 4, w-8, h-8);
+        // 外框
+        ctx.strokeStyle = card.color || '#D4AF37'; ctx.lineWidth = 1; ctx.strokeRect(0, 0, w, h);
     }
 
     copyResults() {
